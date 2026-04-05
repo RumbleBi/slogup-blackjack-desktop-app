@@ -37,6 +37,13 @@ interface ReconnectEligibility {
   canReconnect: boolean
 }
 
+interface LeaderboardEntry {
+  rank: number
+  playerToken: string
+  nickname: string
+  balance: number
+}
+
 function nowISO(): string {
   return new Date().toISOString()
 }
@@ -153,16 +160,112 @@ async function cleanupExpiredHostRooms(): Promise<void> {
   }
 }
 
+async function buildLeaderboard(
+  roomId: string,
+  participants: RoomPlayer[],
+  winnerToken: string | null
+): Promise<LeaderboardEntry[]> {
+  const supabase = ensureSupabase()
+  const activeParticipants = participants.filter((player) => player.status !== 'left')
+  const byToken = new Map(activeParticipants.map((player) => [player.player_token, player]))
+
+  const { data: eliminationLogs, error: eliminationLogError } = await supabase
+    .from('game_logs')
+    .select('player_token, payload, created_at')
+    .eq('room_id', roomId)
+    .eq('event_type', 'player_eliminated')
+    .order('created_at', { ascending: true })
+
+  if (eliminationLogError) {
+    throw eliminationLogError
+  }
+
+  const eliminationOrder: string[] = []
+  for (const log of eliminationLogs ?? []) {
+    const payload = (log.payload ?? {}) as { playerToken?: string }
+    const token = payload.playerToken ?? log.player_token ?? undefined
+    if (!token || !byToken.has(token) || eliminationOrder.includes(token)) {
+      continue
+    }
+    eliminationOrder.push(token)
+  }
+
+  const rankingTokens: string[] = []
+
+  if (winnerToken && byToken.has(winnerToken)) {
+    rankingTokens.push(winnerToken)
+  }
+
+  for (const token of [...eliminationOrder].reverse()) {
+    if (!rankingTokens.includes(token) && byToken.has(token)) {
+      rankingTokens.push(token)
+    }
+  }
+
+  const unresolved = activeParticipants
+    .filter((player) => !rankingTokens.includes(player.player_token))
+    .sort((a, b) => Number(b.balance) - Number(a.balance))
+
+  for (const player of unresolved) {
+    rankingTokens.push(player.player_token)
+  }
+
+  return rankingTokens.map((token, index) => {
+    const player = byToken.get(token)
+    if (!player) {
+      throw new Error('리더보드 계산 중 플레이어 정보를 찾을 수 없습니다.')
+    }
+
+    return {
+      rank: index + 1,
+      playerToken: token,
+      nickname: player.nickname,
+      balance: Number(player.balance)
+    }
+  })
+}
+
 async function syncBalancesAndStatuses(
   room: Room,
   players: RoomPlayer[],
-  balances: Map<string, number>
+  balances: Map<string, number>,
+  game?: Game
 ): Promise<RoomPlayer[]> {
   const supabase = ensureSupabase()
 
+  const eliminationTransitions: Array<{
+    token: string
+    nickname: string
+    reason: 'disconnect_timeout' | 'no_balance' | 'insufficient_for_base_bet'
+    balance: number
+  }> = []
+
   const updates = players.map(async (player) => {
     const nextBalance = Number((balances.get(player.player_token) ?? player.balance).toFixed(2))
-    const nextStatus = nextBalance <= 0 && player.status === 'active' ? 'eliminated' : player.status
+    const isInsufficientForBaseBet = nextBalance < room.base_bet
+
+    let nextStatus = player.status
+    if (player.status !== 'left') {
+      if (player.status === 'disconnected') {
+        nextStatus = 'eliminated'
+      } else if (player.status === 'active' && isInsufficientForBaseBet) {
+        nextStatus = 'eliminated'
+      }
+    }
+
+    if (player.status !== 'eliminated' && nextStatus === 'eliminated') {
+      eliminationTransitions.push({
+        token: player.player_token,
+        nickname: player.nickname,
+        reason:
+          player.status === 'disconnected'
+            ? 'disconnect_timeout'
+            : nextBalance <= 0
+              ? 'no_balance'
+              : 'insufficient_for_base_bet',
+        balance: nextBalance
+      })
+    }
 
     const { error } = await supabase
       .from('room_players')
@@ -186,26 +289,47 @@ async function syncBalancesAndStatuses(
 
   const updatedPlayers = await Promise.all(updates)
 
-  const alivePlayers = updatedPlayers.filter(
-    (player) => player.balance > 0 && player.status !== 'left'
-  )
+  for (const elimination of eliminationTransitions) {
+    await appendGameLog(
+      room.id,
+      'player_eliminated',
+      {
+        playerToken: elimination.token,
+        nickname: elimination.nickname,
+        reason: elimination.reason,
+        balance: elimination.balance
+      },
+      game?.id,
+      game?.round_no,
+      elimination.token
+    )
+  }
+
+  const continuingPlayers = updatedPlayers.filter((player) => player.status === 'active')
+  const participants = updatedPlayers.filter((player) => player.status !== 'left')
+
   let winnerToken: string | null = null
   let shouldFinishWithoutWinner = false
 
-  const reachedTarget = alivePlayers
-    .filter((player) => player.balance >= room.target_money)
-    .sort((a, b) => b.balance - a.balance)
+  const reachedTarget = continuingPlayers
+    .filter((player) => Number(player.balance) >= room.target_money)
+    .sort((a, b) => Number(b.balance) - Number(a.balance))
 
   if (reachedTarget.length > 0) {
     winnerToken = reachedTarget[0].player_token
-  } else if (alivePlayers.length === 1 && updatedPlayers.length > 1) {
-    winnerToken = alivePlayers[0].player_token
-  } else if (alivePlayers.length === 0) {
+  } else if (continuingPlayers.length === 1 && participants.length > 1) {
+    winnerToken = continuingPlayers[0].player_token
+  } else if (continuingPlayers.length === 0 && participants.length > 0) {
+    winnerToken = [...participants].sort((a, b) => Number(b.balance) - Number(a.balance))[0]
+      .player_token
+  } else if (participants.length === 0) {
     shouldFinishWithoutWinner = true
   }
 
+  const isMatchFinished = Boolean(winnerToken || shouldFinishWithoutWinner)
+
   const roomPatch = {
-    status: winnerToken || shouldFinishWithoutWinner ? 'finished' : 'in_game',
+    status: isMatchFinished ? 'waiting' : 'in_game',
     winner_token: winnerToken,
     updated_at: nowISO()
   }
@@ -218,11 +342,53 @@ async function syncBalancesAndStatuses(
     throw roomUpdateError
   }
 
-  if (winnerToken || shouldFinishWithoutWinner) {
+  if (isMatchFinished) {
+    const leaderboard = await buildLeaderboard(room.id, updatedPlayers, winnerToken)
+    const winnerNickname = winnerToken
+      ? updatedPlayers.find((player) => player.player_token === winnerToken)?.nickname
+      : null
+
     await appendGameLog(room.id, 'room_finished', {
       winnerToken,
+      winnerNickname,
       reason: winnerToken ? 'winner_decided' : 'no_active_players'
     })
+
+    await appendGameLog(room.id, 'match_finished', {
+      winnerToken,
+      winnerNickname,
+      leaderboard
+    })
+
+    const disconnectedByTimeout = new Set(
+      eliminationTransitions
+        .filter((entry) => entry.reason === 'disconnect_timeout')
+        .map((entry) => entry.token)
+    )
+
+    const resetPromises = updatedPlayers
+      .filter((player) => player.status !== 'left')
+      .map(async (player) => {
+        const resetStatus = disconnectedByTimeout.has(player.player_token)
+          ? 'disconnected'
+          : 'active'
+
+        const { error } = await supabase
+          .from('room_players')
+          .update({
+            balance: room.starting_money,
+            status: resetStatus,
+            is_ready: false,
+            updated_at: nowISO()
+          })
+          .eq('id', player.id)
+
+        if (error) {
+          throw error
+        }
+      })
+
+    await Promise.all(resetPromises)
   }
 
   return updatedPlayers
@@ -252,7 +418,7 @@ async function completeRoundIfNeeded(
     return
   }
 
-  const updatedPlayers = await syncBalancesAndStatuses(room, players, balances)
+  const updatedPlayers = await syncBalancesAndStatuses(room, players, balances, game)
 
   await appendGameLog(
     room.id,
@@ -739,9 +905,42 @@ export async function startNewRound(
   hostToken: string
 ): Promise<void> {
   const supabase = ensureSupabase()
+  let roomState = room
 
   if (room.host_token !== hostToken) {
     throw new Error('방장만 게임을 시작할 수 있습니다.')
+  }
+
+  if (roomState.status === 'waiting' && roomState.winner_token) {
+    const { error: deleteGamesError } = await supabase
+      .from('games')
+      .delete()
+      .eq('room_id', roomState.id)
+    if (deleteGamesError) {
+      throw deleteGamesError
+    }
+
+    const { error: deleteLogsError } = await supabase
+      .from('game_logs')
+      .delete()
+      .eq('room_id', roomState.id)
+    if (deleteLogsError) {
+      throw deleteLogsError
+    }
+
+    const { error: clearWinnerError } = await supabase
+      .from('rooms')
+      .update({ winner_token: null, updated_at: nowISO() })
+      .eq('id', roomState.id)
+
+    if (clearWinnerError) {
+      throw clearWinnerError
+    }
+
+    roomState = {
+      ...roomState,
+      winner_token: null
+    }
   }
 
   const activePlayers = players.filter((player) => player.status === 'active')
@@ -749,7 +948,7 @@ export async function startNewRound(
     throw new Error('게임 시작에는 최소 1명이 필요합니다.')
   }
 
-  if (room.status === 'waiting') {
+  if (roomState.status === 'waiting') {
     const nonHostPlayers = activePlayers.filter((player) => !player.is_host)
     const allReady = nonHostPlayers.every((player) => player.is_ready)
     if (!allReady) {
@@ -922,10 +1121,20 @@ export async function evaluateDisconnects(
     return
   }
 
+  const playersAfterDisconnect = players.map((player) =>
+    tokens.includes(player.player_token)
+      ? {
+          ...player,
+          status: 'disconnected' as const,
+          is_ready: false
+        }
+      : player
+  )
+
   const balances = mapBalance(players)
   const { state, balances: nextBalances } = markDisconnected(game.state, balances, tokens)
 
-  await completeRoundIfNeeded(room, players, game, state, nextBalances)
+  await completeRoundIfNeeded(room, playersAfterDisconnect, game, state, nextBalances)
 }
 
 export async function enforceTurnTimeout(

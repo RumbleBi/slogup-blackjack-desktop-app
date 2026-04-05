@@ -11,6 +11,7 @@ import {
 } from '@renderer/lib/api'
 import { formatCurrency } from '@renderer/lib/format'
 import { notifyError, notifyInfo, notifySuccess } from '@renderer/lib/toast'
+import { BlackjackRulesModal } from '@renderer/components/BlackjackRulesModal'
 import { UpdateBanner } from '@renderer/components/UpdateBanner'
 import type { UpdateState } from '@renderer/app/useAutoUpdate'
 
@@ -50,6 +51,7 @@ export function LobbyPage({
   const [passwordModalRoom, setPasswordModalRoom] = useState<RoomListItem | null>(null)
   const [joinPassword, setJoinPassword] = useState('')
   const [reconnectCandidate, setReconnectCandidate] = useState<ReconnectCandidate | null>(null)
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [reconnectTick, setReconnectTick] = useState(Date.now())
   const [form, setForm] = useState<CreateRoomInput>(INITIAL_FORM)
   const [nicknameEdit, setNicknameEdit] = useState(nickname)
@@ -283,6 +285,13 @@ export function LobbyPage({
         </div>
         <div className="mt-5">
           <UpdateBanner state={updateState} />
+          <button
+            type="button"
+            onClick={() => setRulesOpen(true)}
+            className="mt-3 rounded-xl border border-cyan-300/40 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-300/10"
+          >
+            게임 룰 보기
+          </button>
         </div>
       </section>
 
@@ -503,6 +512,8 @@ export function LobbyPage({
           </div>
         </div>
       ) : null}
+
+      <BlackjackRulesModal open={rulesOpen} onClose={() => setRulesOpen(false)} />
     </main>
   )
 }

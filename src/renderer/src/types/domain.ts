@@ -30,9 +30,13 @@ export interface PlayerOutcome {
   result: 'win' | 'lose' | 'push' | 'blackjack' | 'disconnected'
   delta: number
   finalBalance: number
+  hand: Card[]
+  handTotal: number
+  handBust: boolean
 }
 
 export interface RoundOutcome {
+  dealerHand: Card[]
   dealerValue: number
   dealerBust: boolean
   winners: string[]

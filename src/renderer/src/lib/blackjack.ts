@@ -158,7 +158,10 @@ function settleRound(
       nickname: player.nickname,
       result,
       delta: Number(delta.toFixed(2)),
-      finalBalance
+      finalBalance,
+      hand: [...player.hand],
+      handTotal: playerValue.total,
+      handBust: playerValue.isBust
     })
   }
 
@@ -172,6 +175,7 @@ function settleRound(
       ...state,
       phase: 'complete',
       outcome: {
+        dealerHand: [...state.dealerHand],
         dealerValue: dealerValue.total,
         dealerBust: dealerValue.isBust,
         winners,
