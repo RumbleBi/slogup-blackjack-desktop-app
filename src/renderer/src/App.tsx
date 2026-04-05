@@ -80,8 +80,8 @@ function AppRoutes(): React.JSX.Element {
       <div className="mx-auto my-16 w-full max-w-2xl rounded-3xl border border-rose-300/30 bg-rose-500/10 p-8 text-rose-100">
         <h1 className="font-display text-3xl">Supabase 설정 필요</h1>
         <p className="mt-3 text-sm text-rose-100/90">
-          `.env` 파일에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY` 값을
-          넣어주세요.
+          `.env` 파일에 `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_DEFAULT_KEY` 값이
+          필요합니다.
         </p>
       </div>
     )
