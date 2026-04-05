@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { ToastContainer } from 'react-toastify'
 import { SessionProvider } from '@renderer/app/SessionProvider'
 import { useSession } from '@renderer/app/session-context'
-import { useAutoUpdate } from '@renderer/app/useAutoUpdate'
+import { useAutoUpdate, type UpdateState } from '@renderer/app/useAutoUpdate'
 import { NicknameGate } from '@renderer/components/NicknameGate'
 import { LobbyPage } from '@renderer/pages/LobbyPage'
 import { RoomPage } from '@renderer/pages/RoomPage'
@@ -26,12 +26,53 @@ function SessionSplash(): React.JSX.Element {
   )
 }
 
+function UpdateRequiredSplash({ state }: { state: UpdateState }): React.JSX.Element {
+  const progressText =
+    state.status === 'downloading' && typeof state.percent === 'number'
+      ? ` (${state.percent.toFixed(0)}%)`
+      : ''
+
+  return (
+    <div className="flex min-h-screen w-full items-center justify-center">
+      <div className="flex w-full max-w-lg flex-col items-center rounded-3xl border border-emerald-200/20 bg-black/35 px-8 py-10 text-center shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+        <img
+          src={slogupLogo}
+          alt="Slogup"
+          className="h-24 w-24 rounded-2xl border border-emerald-200/25 bg-black/25 p-2"
+        />
+        <h1 className="mt-5 font-display text-3xl text-slate-100">업데이트 필요</h1>
+        <p className="mt-2 text-sm text-slate-300">최신 버전 적용 후 게임에 입장할 수 있습니다.</p>
+        <p className="mt-4 text-sm text-emerald-200">{`${state.message}${progressText}`}</p>
+
+        {state.status === 'downloaded' ? (
+          <button
+            type="button"
+            onClick={() => void window.api.installUpdateNow()}
+            className="mt-5 rounded-xl bg-emerald-300 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-200"
+          >
+            업데이트 설치 후 재시작
+          </button>
+        ) : (
+          <div className="mt-5 inline-flex items-center px-4 py-2">
+            <span className="size-6 animate-spin rounded-full border-4 border-emerald-300 border-t-transparent" />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function AppRoutes(): React.JSX.Element {
   const { playerToken, nickname, ready, setNickname } = useSession()
   const updateState = useAutoUpdate()
+  const isUpdateRequired = ['available', 'downloading', 'downloaded'].includes(updateState.status)
 
   if (!ready) {
     return <SessionSplash />
+  }
+
+  if (isUpdateRequired) {
+    return <UpdateRequiredSplash state={updateState} />
   }
 
   if (!isSupabaseConfigured) {

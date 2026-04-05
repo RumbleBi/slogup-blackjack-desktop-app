@@ -18,7 +18,13 @@
     "build:unpack": "npm run build && electron-builder --dir",
     "build:win": "npm run build && electron-builder --win",
     "build:mac": "electron-vite build && electron-builder --mac",
-    "build:linux": "electron-vite build && electron-builder --linux"
+    "build:linux": "electron-vite build && electron-builder --linux",
+    "release:patch": "npm version patch --no-git-tag-version",
+    "release:tag-push": "VERSION=$(node -p \"require('./package.json').version\") && git add -A && git commit -m \"chore(release): v$VERSION\" && git tag v$VERSION && git push origin main && git push origin v$VERSION",
+    "release:mac": "npm run build && electron-builder --mac --publish always",
+    "release:win": "npm run build && electron-builder --win --publish always",
+    "release:patch:mac": "npm run release:patch && npm run release:tag-push && npm run release:mac",
+    "release:patch:win": "npm run release:patch && npm run release:tag-push && npm run release:win"
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",

@@ -39,6 +39,8 @@ appImage:
   artifactName: ${name}-${version}.${ext}
 npmRebuild: false
 publish:
-  provider: generic
-  # 로컬 테스트용 URL. 사내 배포 시에는 공유 가능한 내부 IP/호스트 URL로 변경 필요.
-  url: http://127.0.0.1:5500/blackjack-updates
+  provider: github
+  owner: RumbleBi
+  repo: slogup-blackjack-desktop-app
+  releaseType: release
+  vPrefixedTagName: true
