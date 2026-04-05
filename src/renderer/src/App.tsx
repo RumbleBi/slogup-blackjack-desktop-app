@@ -7,13 +7,31 @@ import { NicknameGate } from '@renderer/components/NicknameGate'
 import { LobbyPage } from '@renderer/pages/LobbyPage'
 import { RoomPage } from '@renderer/pages/RoomPage'
 import { isSupabaseConfigured } from '@renderer/lib/supabase'
+import slogupLogo from '../../../resources/icon.png'
+
+function SessionSplash(): React.JSX.Element {
+  return (
+    <div className="flex min-h-screen w-full items-center justify-center">
+      <div className="flex flex-col justify-center items-center gap-4">
+        <img
+          src={slogupLogo}
+          alt="Slogup"
+          className="mx-auto h-24 w-24 rounded-2xl border border-emerald-200/25 bg-black/25 p-2 shadow-[0_12px_36px_rgba(0,0,0,0.42)]"
+        />
+        <div className="inline-flex items-center px-4 py-2">
+          <span className="size-6 animate-spin rounded-full border-4 border-emerald-300 border-t-transparent" />
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function AppRoutes(): React.JSX.Element {
   const { playerToken, nickname, ready, setNickname } = useSession()
   const updateState = useAutoUpdate()
 
   if (!ready) {
-    return <div className="px-6 py-10 text-slate-300">세션을 준비하는 중...</div>
+    return <SessionSplash />
   }
 
   if (!isSupabaseConfigured) {
