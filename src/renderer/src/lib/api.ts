@@ -160,6 +160,31 @@ async function cleanupExpiredHostRooms(): Promise<void> {
   }
 }
 
+async function leaveOtherRooms(playerToken: string, keepRoomId?: string): Promise<void> {
+  const supabase = ensureSupabase()
+
+  let query = supabase
+    .from('room_players')
+    .select('room_id')
+    .eq('player_token', playerToken)
+    .neq('status', 'left')
+
+  if (keepRoomId) {
+    query = query.neq('room_id', keepRoomId)
+  }
+
+  const { data, error } = await query
+
+  if (error) {
+    throw error
+  }
+
+  const roomIds = [...new Set((data ?? []).map((row) => row.room_id as string))]
+  for (const roomId of roomIds) {
+    await leaveRoom(roomId, playerToken)
+  }
+}
+
 async function buildLeaderboard(
   roomId: string,
   participants: RoomPlayer[],
@@ -516,6 +541,8 @@ export async function createRoom(
   const supabase = ensureSupabase()
   const safeNickname = ensureNickname(nickname)
 
+  await leaveOtherRooms(playerToken)
+
   if (input.maxPlayers < 1 || input.maxPlayers > 5) {
     throw new Error('최대 인원은 1~5명만 가능합니다.')
   }
@@ -601,6 +628,11 @@ export async function joinRoom(
   }
 
   const existing = players?.find((player) => player.player_token === playerToken)
+
+  if (!existing && room.status === 'in_game') {
+    throw new Error('진행 중인 방은 신규 입장이 불가능합니다. 재접속만 허용됩니다.')
+  }
+
   if (!existing && (room.password ?? '') !== (password ?? '')) {
     throw new Error('비밀번호가 일치하지 않습니다.')
   }
@@ -650,6 +682,8 @@ export async function joinRoom(
     )
     return
   }
+
+  await leaveOtherRooms(playerToken, roomId)
 
   const participantCount = players?.length ?? 0
   if (participantCount >= room.max_players) {

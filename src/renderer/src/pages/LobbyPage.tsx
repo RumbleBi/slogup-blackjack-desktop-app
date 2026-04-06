@@ -6,6 +6,7 @@ import {
   fetchRooms,
   getReconnectCandidate,
   joinRoom,
+  leaveRoom,
   type ReconnectCandidate,
   type RoomListItem
 } from '@renderer/lib/api'
@@ -35,6 +36,27 @@ const INITIAL_FORM: CreateRoomInput = {
   targetMoney: 500,
   startingMoney: 100,
   baseBet: 5
+}
+
+function roomStatusMeta(status: RoomListItem['status']): { label: string; tone: string } {
+  if (status === 'in_game') {
+    return {
+      label: '게임 중',
+      tone: 'border-amber-200/40 bg-amber-300/10 text-amber-100'
+    }
+  }
+
+  if (status === 'waiting') {
+    return {
+      label: '시작 전',
+      tone: 'border-emerald-200/40 bg-emerald-300/10 text-emerald-100'
+    }
+  }
+
+  return {
+    label: '종료',
+    tone: 'border-slate-200/30 bg-slate-400/10 text-slate-200'
+  }
 }
 
 export function LobbyPage({
@@ -167,6 +189,18 @@ export function LobbyPage({
   }
 
   const handleJoinRoom = async (room: RoomListItem): Promise<void> => {
+    const canReconnectThisRoom = reconnectCandidate?.roomId === room.id && reconnectRemainingSec > 0
+
+    if (room.status === 'in_game' && !canReconnectThisRoom) {
+      notifyInfo('진행 중인 방은 신규 입장이 불가능하며, 재접속만 허용됩니다.', 'room-join-running')
+      return
+    }
+
+    if (room.status === 'in_game' && canReconnectThisRoom) {
+      await performJoinRoom(room)
+      return
+    }
+
     if (room.password) {
       setPasswordModalRoom(room)
       setJoinPassword('')
@@ -246,6 +280,24 @@ export function LobbyPage({
       setReconnectCandidate(null)
     } finally {
       setJoiningRoomId(null)
+    }
+  }
+
+  const handleReconnectDecline = async (): Promise<void> => {
+    if (!reconnectCandidate) {
+      return
+    }
+
+    try {
+      await leaveRoom(reconnectCandidate.roomId, playerToken)
+    } catch (leaveError) {
+      notifyError(
+        leaveError instanceof Error ? leaveError.message : '이전 방 이탈 처리에 실패했습니다.',
+        'reconnect-decline'
+      )
+    } finally {
+      setReconnectCandidate(null)
+      await loadRooms()
     }
   }
 
@@ -395,41 +447,63 @@ export function LobbyPage({
           <h2 className="font-display text-2xl text-slate-100">개설된 방</h2>
           {loading ? <p className="mt-4 text-sm text-slate-400">불러오는 중...</p> : null}
           <div className="mt-4 grid gap-3">
-            {rooms.map((room) => (
-              <div key={room.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-slate-100">{room.name}</h3>
-                    <p className="text-xs text-slate-400">
-                      인원 {room.player_count}/{room.max_players} · 시작자금{' '}
-                      {formatCurrency(room.starting_money)} · 기본베팅{' '}
-                      {formatCurrency(room.base_bet)}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      목표 금액: {formatCurrency(room.target_money)}
-                    </p>
-                  </div>
-                  {room.password ? (
-                    <span className="rounded-full border border-amber-200/40 px-2 py-1 text-xs text-amber-100">
-                      비밀방
-                    </span>
-                  ) : null}
-                </div>
+            {rooms.map((room) => {
+              const status = roomStatusMeta(room.status)
+              const canReconnectThisRoom =
+                reconnectCandidate?.roomId === room.id && reconnectRemainingSec > 0
+              const joinDisabled =
+                joiningRoomId === room.id ||
+                room.player_count >= room.max_players ||
+                room.status === 'finished' ||
+                (room.status === 'in_game' && !canReconnectThisRoom)
+              const joinLabel =
+                joiningRoomId === room.id
+                  ? '입장 중...'
+                  : room.status === 'in_game'
+                    ? canReconnectThisRoom
+                      ? '재입장'
+                      : '게임 중 (재입장 전용)'
+                    : '입장하기'
 
-                <button
-                  type="button"
-                  disabled={
-                    joiningRoomId === room.id ||
-                    room.player_count >= room.max_players ||
-                    room.status === 'finished'
-                  }
-                  onClick={() => void handleJoinRoom(room)}
-                  className="mt-3 rounded-xl border border-emerald-300/40 px-3 py-2 text-sm text-emerald-100 transition hover:bg-emerald-300/15 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {joiningRoomId === room.id ? '입장 중...' : '입장하기'}
-                </button>
-              </div>
-            ))}
+              return (
+                <div key={room.id} className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-semibold text-slate-100">{room.name}</h3>
+                      <p className="mt-1">
+                        <span
+                          className={`inline-flex rounded-full border px-2 py-0.5 text-xs ${status.tone}`}
+                        >
+                          {status.label}
+                        </span>
+                      </p>
+                      <p className="mt-2 text-xs text-slate-400">
+                        인원 {room.player_count}/{room.max_players} · 시작자금{' '}
+                        {formatCurrency(room.starting_money)} · 기본베팅{' '}
+                        {formatCurrency(room.base_bet)}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-400">
+                        목표 금액: {formatCurrency(room.target_money)}
+                      </p>
+                    </div>
+                    {room.password ? (
+                      <span className="rounded-full border border-amber-200/40 px-2 py-1 text-xs text-amber-100">
+                        비밀방
+                      </span>
+                    ) : null}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={joinDisabled}
+                    onClick={() => void handleJoinRoom(room)}
+                    className="mt-3 rounded-xl border border-emerald-300/40 px-3 py-2 text-sm text-emerald-100 transition hover:bg-emerald-300/15 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {joinLabel}
+                  </button>
+                </div>
+              )
+            })}
 
             {!loading && rooms.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-white/20 p-5 text-sm text-slate-400">
@@ -503,7 +577,7 @@ export function LobbyPage({
               </button>
               <button
                 type="button"
-                onClick={() => setReconnectCandidate(null)}
+                onClick={() => void handleReconnectDecline()}
                 className="rounded-xl border border-white/20 px-3 py-2 text-sm text-slate-200 transition hover:bg-white/10"
               >
                 닫기
