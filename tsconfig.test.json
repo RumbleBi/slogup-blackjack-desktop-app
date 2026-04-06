@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.web.json",
+  "compilerOptions": {
+    "composite": false,
+    "types": ["jest", "@testing-library/jest-dom"]
+  },
+  "include": [
+    "src/renderer/src/**/*",
+    "src/renderer/src/**/*.tsx",
+    "jest.config.ts"
+  ]
+}

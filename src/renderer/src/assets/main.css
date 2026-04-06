@@ -7,6 +7,37 @@
   --font-sans:
     'Iowan Old Style', 'Palatino Linotype', 'Noto Serif KR', 'Apple SD Gothic Neo', 'Noto Sans KR',
     serif;
+
+  /* shadcn/ui 색상 토큰 - 기존 다크 테마 기반 매핑 */
+  --color-background: oklch(0.07 0.015 220);
+  --color-foreground: oklch(0.93 0.01 220);
+
+  --color-card: oklch(0.1 0.018 220);
+  --color-card-foreground: oklch(0.93 0.01 220);
+
+  --color-popover: oklch(0.1 0.018 220);
+  --color-popover-foreground: oklch(0.93 0.01 220);
+
+  --color-primary: oklch(0.87 0.11 162); /* ≈ #8ff0cb */
+  --color-primary-foreground: oklch(0.1 0.02 220);
+
+  --color-secondary: oklch(0.15 0.018 220);
+  --color-secondary-foreground: oklch(0.85 0.01 220);
+
+  --color-muted: oklch(0.15 0.015 220);
+  --color-muted-foreground: oklch(0.58 0.01 220);
+
+  --color-accent: oklch(0.87 0.11 162); /* ≈ #8ff0cb */
+  --color-accent-foreground: oklch(0.1 0.02 220);
+
+  --color-destructive: oklch(0.55 0.22 25);
+  --color-destructive-foreground: oklch(0.93 0.01 220);
+
+  --color-border: oklch(0.22 0.018 220);
+  --color-input: oklch(0.15 0.018 220);
+  --color-ring: oklch(0.87 0.11 162);
+
+  --radius: 0.5rem;
 }
 
 :root {
